@@ -1,0 +1,29 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+src-tauri/Cargo.lock.bak
+tauri-plugin-mintvpn/target/
+tauri-plugin-mintvpn/android/.tauri/
+tauri-plugin-mintvpn/permissions/schemas/
+
+# Build outputs
+*.exe
+*.msi
+Mint-*.zip

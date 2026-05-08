@@ -1,0 +1,89 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mint VPN",
+  "mainBinaryName": "Mint",
+  "version": "0.3.32",
+  "identifier": "com.mint.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Mint VPN",
+        "width": 1200,
+        "height": 760,
+        "minWidth": 980,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": false,
+        "shadow": true,
+        "center": true,
+        "backgroundColor": "#07060d",
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "publisher": "Mint VPN",
+    "shortDescription": "Mint VPN",
+    "longDescription": "Mint VPN — premium desktop client",
+    "category": "Utility",
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": true,
+        "languages": [
+          "English",
+          "Russian"
+        ],
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "compression": "lzma"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "mint",
+          "mintvpn"
+        ]
+      }
+    },
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "endpoints": [
+        "https://github.com/M1ntVPN/MintVPN/releases/latest/download/latest.json",
+        "https://cdn.jsdelivr.net/gh/M1ntVPN/MintVPN@release-mirror/latest.json",
+        "https://raw.githubusercontent.com/M1ntVPN/MintVPN/release-mirror/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxMDlDQjY5RUM4RTE0RjAKUldUd0ZJN3NhY3NKWWJ4R055d2hNZUk1SWpITVFKTWZhTmgxV0kybDZlUHNGVFp5UHVBZldYc2EK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

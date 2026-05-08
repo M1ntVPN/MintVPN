@@ -1,0 +1,292 @@
+name: Build
+
+on:
+  push:
+    branches: [main, dev, "feat/**"]
+    tags:
+      # Desktop releases use plain semver tags; Android uses `v*-android`,
+      # which has its own workflow and must not trigger this one.
+      - "v[0-9]*.[0-9]*.[0-9]*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    # Only skip when the ref is a tag ending in -android (Android release).
+    # Branch names that happen to end in '-android' (e.g. work branches) must
+    # still run desktop CI.
+    if: "!(startsWith(github.ref, 'refs/tags/') && endsWith(github.ref, '-android'))"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            artifact: mint-vpn-windows
+            target: x86_64-pc-windows-msvc
+            ext: nsis,portable
+
+    env:
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage Tauri signing key (Windows)
+        if: matrix.platform == 'windows'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_RAW: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY_RAW" ]; then
+            echo "No signing key configured; build will be unsigned."
+            exit 0
+          fi
+          KEY_PATH="$RUNNER_TEMP/tauri-signing.key"
+          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY_RAW" > "$KEY_PATH"
+          BYTES=$(wc -c < "$KEY_PATH")
+          echo "Wrote signing key ($BYTES bytes) to $KEY_PATH"
+          echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Download sing-box sidecar (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          SINGBOX_VERSION: "1.10.7"
+        run: |
+          $version = $env:SINGBOX_VERSION
+          $url = "https://github.com/SagerNet/sing-box/releases/download/v$version/sing-box-$version-windows-amd64.zip"
+          $dest = "src-tauri/binaries"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $tmp = New-TemporaryFile
+          Remove-Item $tmp
+          $tmpDir = New-Item -ItemType Directory -Path "$($tmp.FullName)-d"
+          $zip = Join-Path $tmpDir.FullName "sing-box.zip"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath $tmpDir.FullName -Force
+          $exe = Get-ChildItem -Path $tmpDir.FullName -Recurse -Filter "sing-box.exe" | Select-Object -First 1
+          if (-not $exe) { Write-Error "sing-box.exe not found in archive"; exit 1 }
+          Copy-Item $exe.FullName -Destination "$dest/sing-box-${{ matrix.target }}.exe" -Force
+          $wintunUrl = "https://www.wintun.net/builds/wintun-0.14.1.zip"
+          $wzip = Join-Path $tmpDir.FullName "wintun.zip"
+          Invoke-WebRequest -Uri $wintunUrl -OutFile $wzip -UseBasicParsing
+          Expand-Archive -Path $wzip -DestinationPath $tmpDir.FullName -Force
+          $dll = Get-ChildItem -Path (Join-Path $tmpDir.FullName "wintun") -Recurse -Filter "wintun.dll" | Where-Object { $_.FullName -match "amd64" } | Select-Object -First 1
+          if ($dll) { Copy-Item $dll.FullName -Destination "$dest/wintun.dll" -Force }
+          Get-ChildItem $dest
+
+      - name: Clean stale bundle output (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $bundle = "src-tauri/target/${{ matrix.target }}/release/bundle"
+          if (Test-Path $bundle) { Remove-Item -Recurse -Force $bundle }
+
+      - name: Build Tauri app
+        run: npm run tauri:build -- --target ${{ matrix.target }}
+
+      - name: Normalize installer filenames (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $nsisDir = "src-tauri/target/${{ matrix.target }}/release/bundle/nsis"
+          if (-not (Test-Path $nsisDir)) {
+            Write-Error "NSIS bundle directory not produced"
+            exit 1
+          }
+          Get-ChildItem $nsisDir | ForEach-Object {
+            if ($_.Name -match ' ') {
+              $newName = $_.Name -replace ' ', '.'
+              Rename-Item -LiteralPath $_.FullName -NewName $newName -Force
+              Write-Host "Renamed $($_.Name) -> $newName"
+            }
+          }
+          Get-ChildItem $nsisDir
+
+      - name: Stage portable bundle (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/${{ matrix.target }}/release/Mint.exe"
+          if (-not (Test-Path $exe)) { Write-Error "Mint.exe not produced"; exit 1 }
+          $stage = "stage/Mint"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Path $exe -Destination "$stage/Mint.exe"
+          $sidecar = "src-tauri/binaries/sing-box-${{ matrix.target }}.exe"
+          if (Test-Path $sidecar) { Copy-Item $sidecar "$stage/sing-box.exe" }
+          $wintun = "src-tauri/binaries/wintun.dll"
+          if (Test-Path $wintun) { Copy-Item $wintun "$stage/wintun.dll" }
+          Compress-Archive -Path "$stage/*" -DestinationPath "Mint.VPN-Windows-Portable-x64.zip" -Force
+
+      - name: Generate latest.json (on tag)
+        if: matrix.platform == 'windows' && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $nsisDir = "src-tauri/target/${{ matrix.target }}/release/bundle/nsis"
+          $sigFile = Get-ChildItem "$nsisDir/*${version}*-setup.exe.sig" | Select-Object -First 1
+          $exeFile = Get-ChildItem "$nsisDir/*${version}*-setup.exe" | Where-Object { $_.Name -notlike "*.sig" } | Select-Object -First 1
+          if (-not $sigFile) { Write-Error "No -setup.exe.sig file found — is TAURI_SIGNING_PRIVATE_KEY set?"; exit 1 }
+          if (-not $exeFile) { Write-Error "No -setup.exe file found"; exit 1 }
+          $sig = (Get-Content -Raw -Path $sigFile.FullName).Trim()
+          $url = "https://github.com/M1ntVPN/MintVPN/releases/download/$tag/$($exeFile.Name)"
+          $body = [ordered]@{
+            version = $version
+            notes = "Mint VPN $version"
+            pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $sig
+                url = $url
+              }
+            }
+          } | ConvertTo-Json -Depth 5
+          Set-Content -Path "latest.json" -Value $body -Encoding utf8
+          Get-Content "latest.json"
+
+      - name: Upload portable
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-portable
+          path: Mint.VPN-Windows-Portable-x64.zip
+          if-no-files-found: error
+
+      - name: Upload installer
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-installer
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+      - name: Stage updater bundle (Windows, on tag)
+        if: matrix.platform == 'windows' && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $stage = "updater-stage"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $nsisDir = "src-tauri/target/${{ matrix.target }}/release/bundle/nsis"
+          Get-ChildItem "$nsisDir/*-setup.exe.sig" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination $stage -Force
+          }
+          Copy-Item -Path "latest.json" -Destination $stage -Force
+          Get-ChildItem $stage
+
+      - name: Upload updater bundle (on tag)
+        if: matrix.platform == 'windows' && startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-updater
+          path: updater-stage/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f -printf "%p (%s bytes)\n"
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Mint VPN ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          # Always promote desktop releases to "Latest" so /releases/latest
+          # resolves to the manifest the Windows auto-updater downloads.
+          make_latest: "true"
+          prerelease: false
+          files: |
+            artifacts/mint-vpn-windows-installer/*.exe
+            artifacts/mint-vpn-windows-portable/*.zip
+            artifacts/mint-vpn-windows-updater/*.exe.sig
+            artifacts/mint-vpn-windows-updater/latest.json
+
+      # Mirror latest.json onto a dedicated `release-mirror` branch so the
+      # Tauri updater has a fallback endpoint that does NOT depend on
+      # github.com being reachable. RKN periodically blackholes the
+      # release-asset CDN (and even github.com itself), which causes
+      # `checkForUpdates` to fail with `error sending request for url`
+      # before download even starts. jsDelivr serves the same bytes from
+      # Cloudflare/Fastly POPs that survive those incidents, and
+      # raw.githubusercontent.com is a third independent path.
+      - name: Mirror latest.json to release-mirror branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          MANIFEST="artifacts/mint-vpn-windows-updater/latest.json"
+          test -f "$MANIFEST" || { echo "latest.json not found at $MANIFEST"; exit 1; }
+          MIRROR_DIR="$(mktemp -d)"
+          cd "$MIRROR_DIR"
+          git init -q -b release-mirror
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp "$GITHUB_WORKSPACE/$MANIFEST" latest.json
+          # Anchor the file to the specific tag so users can verify which
+          # release this manifest came from without consulting GitHub UI.
+          echo "${{ github.ref_name }}" > VERSION
+          git add latest.json VERSION
+          git commit -q -m "release-mirror: ${{ github.ref_name }}"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          # Force-push: this branch is a single-commit mirror, never merged
+          # into main and never read for git history — only the file is
+          # consumed (via jsDelivr / raw.githubusercontent.com).
+          git push -f origin "HEAD:refs/heads/release-mirror"
+
+      - name: Purge jsDelivr cache for release-mirror
+        # Best-effort: jsDelivr branch caches stay fresh for ~24h, but we
+        # call the purge URL so the new latest.json shows up immediately
+        # for users on a fast update cadence.
+        continue-on-error: true
+        run: |
+          curl -fsS -X POST \
+            "https://purge.jsdelivr.net/gh/${{ github.repository }}@release-mirror/latest.json" \
+            -o /dev/null -w "purge status %{http_code}\n" || true
