@@ -80,7 +80,7 @@
         "https://cdn.jsdelivr.net/gh/M1ntVPN/MintVPN@release-mirror/latest.json",
         "https://raw.githubusercontent.com/M1ntVPN/MintVPN/release-mirror/latest.json"
       ],
-      "pubkey": "ZFc1MGNuVnpkR1ZrSUdOdmJXMWxiblE2SUcxcGJtbHphV2R1SUhCMVlteHBZeUJyWlhrNklFWTFPREZGT0RFNE0wVXhNMFJETkRNS1VsZFNSRE5DVFN0SFQybENPV0UxYzBreWFWVnpPRk0zU2s1Qk1HYzNWbFZVZUcxVlZXODFXak53UjFabFMxcExRV3Q2Vm1aNVJtWUs=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY1ODFFODE4M0UxM0RDNDMKUldSRDNCTStHT2lCOWE1c0kyaVVzOFM3Sk5BMGc3VlVUeG1VVW81WjNwR1ZlS1pLQWt6VmZ5RmYK",
       "windows": {
         "installMode": "passive"
       }
