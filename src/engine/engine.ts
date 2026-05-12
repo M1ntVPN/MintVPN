@@ -13,19 +13,48 @@ import { useTunneling } from "../store/tunneling";
 import { useLogs } from "../store/logs";
 import { isAndroid } from "../utils/platform";
 import { vpnStart, vpnStop, vpnStatus } from "../utils/vpn";
+import {
+  AUTO_LOCAL_DNS,
+  invalidateAutoBootstrapDoH,
+  resolveAutoBootstrapDoH,
+} from "./dnsProbe";
 
 export interface StartOptions {
   exit: SavedServer;
   entry?: SavedServer | null;
 }
 
-function resolveDns(): { remoteDns?: string; localDns?: string } {
+async function resolveDns(): Promise<{ remoteDns?: string; localDns?: string }> {
   const v = useSettingsStore.getState().values;
   const remote = v["mint.dns.remote"];
-  const local = v["mint.dns.local"];
+  const localRaw = v["mint.dns.local"];
+  // `localDns` is the bootstrap resolver used BEFORE the tunnel is up.
+  // When the user picks the "Авто" preset (sentinel: `AUTO_LOCAL_DNS`)
+  // we probe a list of IP-DoH candidates in order and use the first
+  // one whose `ip:443` accepts a TCP connection. This is the fix for
+  // RU/ISP networks that block `1.1.1.1:443` outright — the old
+  // behaviour was to time out on bootstrap forever.
+  let localResolved: string | undefined;
+  if (typeof localRaw === "string" && localRaw === AUTO_LOCAL_DNS) {
+    try {
+      localResolved = await resolveAutoBootstrapDoH();
+      const log = useLogs.getState().push;
+      const ts = new Date().toISOString().slice(11, 23);
+      log({
+        t: ts,
+        lvl: "INFO",
+        src: "dns",
+        msg: `Авто DNS для бутстрапа: ${localResolved}`,
+      });
+    } catch {
+      localResolved = undefined;
+    }
+  } else if (typeof localRaw === "string" && localRaw) {
+    localResolved = localRaw;
+  }
   return {
     remoteDns: typeof remote === "string" && remote ? remote : undefined,
-    localDns: typeof local === "string" && local ? local : undefined,
+    localDns: localResolved,
   };
 }
 
@@ -45,7 +74,7 @@ export async function startEngine(opts: StartOptions): Promise<void> {
     }
   }
   setClashApiPort(clashApiPort);
-  const dns = resolveDns();
+  const dns = await resolveDns();
   const t = useTunneling.getState();
   {
     const log = useLogs.getState().push;
@@ -156,6 +185,12 @@ export async function stopEngine(): Promise<void> {
       console.warn("sysproxy_clear_if_local failed", e);
     }
   }
+  // Invalidate the bootstrap-DoH probe cache on disconnect. A common
+  // reason users stop the tunnel is that they're hopping to a different
+  // network (home -> hotspot, or going behind a captive portal), and
+  // a stale cached IP-DoH choice would silently break the next start.
+  // Re-probing on the next connect is cheap (~1.5s worst case).
+  invalidateAutoBootstrapDoH();
   await vpnStop();
 }
 
