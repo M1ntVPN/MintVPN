@@ -24,6 +24,7 @@ import { MultiHopCard } from "./MultiHopCard";
 import { useSetting } from "../store/settings";
 import { useConnection } from "../store/connection";
 import { isMobile as isMobilePlatform } from "../utils/platform";
+import { AUTO_LOCAL_DNS } from "../engine/dnsProbe";
 
 type CategoryKey =
   | "appearance"
@@ -503,13 +504,67 @@ function SecuritySection() {
   );
 }
 
-const DNS_PRESETS: { value: string; label: string }[] = [
+// Local-DNS presets. Listed roughly in order of "likely to work in RU"
+// — the Авто option races several IP-DoH candidates and picks the
+// first reachable one, which is the right default for users sitting
+// behind an ISP that blocks Cloudflare. Plain-hostname DoH entries
+// (`dns.adguard-dns.com`, `dns.quad9.net`, `doh.opendns.com`) are kept
+// for completeness but listed last — they require the OS resolver to
+// work, which is unreliable on RKN-hijacked networks.
+const DNS_PRESETS_LOCAL: { value: string; label: string }[] = [
+  { value: AUTO_LOCAL_DNS, label: "Авто (рекомендуется)" },
   { value: "https://1.1.1.1/dns-query", label: "Cloudflare (1.1.1.1)" },
+  { value: "https://1.0.0.1/dns-query", label: "Cloudflare резерв (1.0.0.1)" },
   { value: "https://8.8.8.8/dns-query", label: "Google (8.8.8.8)" },
-  { value: "https://dns.quad9.net/dns-query", label: "Quad9 (9.9.9.9)" },
-  { value: "https://dns.adguard-dns.com/dns-query", label: "AdGuard DNS" },
-  { value: "https://doh.opendns.com/dns-query", label: "OpenDNS" },
+  { value: "https://8.8.4.4/dns-query", label: "Google резерв (8.8.4.4)" },
+  { value: "https://9.9.9.9/dns-query", label: "Quad9 (9.9.9.9)" },
+  { value: "https://9.9.9.10/dns-query", label: "Quad9 unfiltered (9.9.9.10)" },
+  { value: "https://94.140.14.14/dns-query", label: "AdGuard осн. (94.140.14.14)" },
+  { value: "https://94.140.14.15/dns-query", label: "AdGuard семейный (94.140.14.15)" },
+  { value: "https://94.140.14.140/dns-query", label: "AdGuard unfiltered (94.140.14.140)" },
+  { value: "https://77.88.8.8/dns-query", label: "Яндекс базовый (77.88.8.8)" },
+  { value: "https://77.88.8.88/dns-query", label: "Яндекс безопасный (77.88.8.88)" },
+  { value: "https://208.67.222.222/dns-query", label: "OpenDNS (208.67.222.222)" },
+  { value: "https://76.76.2.0/dns-query", label: "ControlD (76.76.2.0)" },
+  { value: "https://185.222.222.222/dns-query", label: "DNS.SB (185.222.222.222)" },
+  { value: "https://45.90.28.0/dns-query", label: "NextDNS (45.90.28.0)" },
+  { value: "https://194.242.2.2/dns-query", label: "Mullvad (194.242.2.2)" },
+  { value: "https://dns.adguard-dns.com/dns-query", label: "AdGuard DNS (host)" },
+  { value: "https://dns.quad9.net/dns-query", label: "Quad9 (host)" },
+  { value: "https://doh.opendns.com/dns-query", label: "OpenDNS (host)" },
   { value: "tls://1.1.1.1", label: "Cloudflare DoT" },
+  { value: "tls://9.9.9.9", label: "Quad9 DoT" },
+  { value: "tls://94.140.14.14", label: "AdGuard DoT" },
+  { value: "custom", label: "Свой сервер…" },
+];
+
+// Remote-DNS presets. The remote resolver runs **through** the tunnel
+// once it's up, so plain-hostname DoH entries work fine — the ISP can
+// no longer hijack lookups at that point. We still list IP-DoH first
+// because it bypasses one extra resolution step (slightly faster) and
+// stays consistent with the local list.
+const DNS_PRESETS_REMOTE: { value: string; label: string }[] = [
+  { value: "https://1.1.1.1/dns-query", label: "Cloudflare (1.1.1.1)" },
+  { value: "https://1.0.0.1/dns-query", label: "Cloudflare резерв (1.0.0.1)" },
+  { value: "https://8.8.8.8/dns-query", label: "Google (8.8.8.8)" },
+  { value: "https://8.8.4.4/dns-query", label: "Google резерв (8.8.4.4)" },
+  { value: "https://9.9.9.9/dns-query", label: "Quad9 (9.9.9.9)" },
+  { value: "https://9.9.9.10/dns-query", label: "Quad9 unfiltered (9.9.9.10)" },
+  { value: "https://94.140.14.14/dns-query", label: "AdGuard осн. (94.140.14.14)" },
+  { value: "https://94.140.14.15/dns-query", label: "AdGuard семейный (94.140.14.15)" },
+  { value: "https://94.140.14.140/dns-query", label: "AdGuard unfiltered (94.140.14.140)" },
+  { value: "https://77.88.8.8/dns-query", label: "Яндекс базовый (77.88.8.8)" },
+  { value: "https://208.67.222.222/dns-query", label: "OpenDNS (208.67.222.222)" },
+  { value: "https://76.76.2.0/dns-query", label: "ControlD (76.76.2.0)" },
+  { value: "https://185.222.222.222/dns-query", label: "DNS.SB (185.222.222.222)" },
+  { value: "https://45.90.28.0/dns-query", label: "NextDNS (45.90.28.0)" },
+  { value: "https://194.242.2.2/dns-query", label: "Mullvad (194.242.2.2)" },
+  { value: "https://dns.adguard-dns.com/dns-query", label: "AdGuard DNS (host)" },
+  { value: "https://dns.quad9.net/dns-query", label: "Quad9 (host)" },
+  { value: "https://doh.opendns.com/dns-query", label: "OpenDNS (host)" },
+  { value: "tls://1.1.1.1", label: "Cloudflare DoT" },
+  { value: "tls://9.9.9.9", label: "Quad9 DoT" },
+  { value: "tls://94.140.14.14", label: "AdGuard DoT" },
   { value: "custom", label: "Свой сервер…" },
 ];
 
@@ -518,20 +573,25 @@ function NetworkSection() {
     "mint.dns.remote",
     "https://1.1.1.1/dns-query"
   );
-  // Default for the *local* DNS used to be `https://223.5.5.5/dns-query`
-  // (AliDNS, China Telecom). That's a horrible default for non-China
-  // users — the endpoint is China-firewalled outbound, so for everyone
-  // outside CN it just times out. Match the engine's new default
-  // (`configBuilder.ts`) and use Cloudflare 1.1.1.1 — it's also IP-
-  // addressed, so it bypasses the system resolver, which matters on
-  // RKN-poisoned Russian networks.
+  // Default for the *local* DNS is now the `AUTO_LOCAL_DNS` sentinel.
+  // The engine layer (`src/engine/engine.ts`) intercepts this value
+  // and runs `resolveAutoBootstrapDoH()` — a TCP-connect race against
+  // a list of IP-DoH candidates (Cloudflare, Google, Quad9, AdGuard,
+  // Yandex). The first one whose `ip:443` responds within ~1.5s wins.
+  //
+  // This fixes the long-standing RKN problem where the old default
+  // `https://1.1.1.1/dns-query` would just time out on ISPs that
+  // block Cloudflare DoH, leaving the tunnel unable to bootstrap and
+  // the user staring at "connection failed" with no clue why.
   const [local, setLocal] = useSetting<string>(
     "mint.dns.local",
-    "https://1.1.1.1/dns-query"
+    AUTO_LOCAL_DNS
   );
 
-  const isCustomRemote = !DNS_PRESETS.some((p) => p.value === remote) && remote !== "";
-  const isCustomLocal = !DNS_PRESETS.some((p) => p.value === local) && local !== "";
+  const isCustomRemote =
+    !DNS_PRESETS_REMOTE.some((p) => p.value === remote) && remote !== "";
+  const isCustomLocal =
+    !DNS_PRESETS_LOCAL.some((p) => p.value === local) && local !== "";
 
   return (
     <SectionCard icon={Globe} title="DNS resolvers">
@@ -542,7 +602,7 @@ function NetworkSection() {
         <div className="flex flex-col gap-1.5 items-end">
           <Dropdown
             value={isCustomRemote ? "custom" : remote}
-            options={DNS_PRESETS}
+            options={DNS_PRESETS_REMOTE}
             onChange={(v) => {
               if (v === "custom") {
                 setRemote(isCustomRemote ? remote : "https://");
@@ -563,12 +623,16 @@ function NetworkSection() {
       </RowWrap>
       <RowWrap
         label="DNS для локальной сети"
-        desc="Используется до подключения и для прямых запросов. Лучше IP-DoH (1.1.1.1) чтобы обойти подмену DNS у провайдера."
+        desc={
+          "Используется до подключения и для прямых запросов. " +
+          "«Авто» — перебирает список IP-DoH (Cloudflare, Google, Quad9, AdGuard, Яндекс) " +
+          "и берёт первый рабочий — лекарство от блокировки 1.1.1.1 у провайдера."
+        }
       >
         <div className="flex flex-col gap-1.5 items-end">
           <Dropdown
             value={isCustomLocal ? "custom" : local}
-            options={DNS_PRESETS}
+            options={DNS_PRESETS_LOCAL}
             onChange={(v) => {
               if (v === "custom") {
                 setLocal(isCustomLocal ? local : "https://");
