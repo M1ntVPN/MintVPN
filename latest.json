@@ -1,0 +1,11 @@
+{
+  "version": "0.3.36",
+  "notes": "Mint VPN 0.3.36",
+  "pub_date": "2026-05-13T07:33:11Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSRDNCTStHT2lCOWVyZ3BBQWkxelNnT2ZOZ1BiQmx1Z3M1ZHZRc2NPMUtZdWcyVW9nKzRvNk5KT3JIbGtjRzRDdWtBRjhOeU5oOFByZFdROTMyRWdHRGZLOG1mQVRXS2dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4NjU3NTg4CWZpbGU6TWludCBWUE5fMC4zLjM2X3g2NC1zZXR1cC5leGUKRjI3aVVDMm9HZXY0VTZGMGFjWitraklxVWNiNTFJMmduZmhDSzV1M3dSQ3FvRVY5ZmhQMFBCbms2d1RJN0V4NU1pVjhmZW81ZWRlVFVjL2hJb0ZaREE9PQo=",
+      "url": "https://github.com/M1ntVPN/MintVPN/releases/download/v0.3.36/Mint.VPN_0.3.36_x64-setup.exe"
+    }
+  }
+}
