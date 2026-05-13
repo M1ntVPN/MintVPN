@@ -35,7 +35,15 @@ export function Dropdown({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setLocal] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [coords, setCoords] = useState<
+    | {
+        top: number;
+        left: number;
+        width: number;
+        maxHeight: number;
+      }
+    | null
+  >(null);
 
   useEffect(() => {
     const sub = (currentlyOpen: string | null) => setLocal(currentlyOpen === id);
@@ -50,10 +58,25 @@ export function Dropdown({
     const r = triggerRef.current.getBoundingClientRect();
     const panelWidth = Math.max(r.width, minWidth);
     const left = align === "right" ? r.right - panelWidth : r.left;
+    // Cap height to fit in the viewport. Prefer opening below the
+    // trigger; flip above when there is meaningfully more room there
+    // (e.g. trigger near the bottom of a short modal/window). 16px of
+    // breathing room from the edge keeps the panel off the chrome.
+    const VIEWPORT_PAD = 16;
+    const MAX_PANEL_HEIGHT = 360;
+    const spaceBelow = window.innerHeight - r.bottom - VIEWPORT_PAD;
+    const spaceAbove = r.top - VIEWPORT_PAD;
+    const placement: "below" | "above" =
+      spaceBelow >= 160 || spaceBelow >= spaceAbove ? "below" : "above";
+    const available = placement === "below" ? spaceBelow : spaceAbove;
+    const maxHeight = Math.max(120, Math.min(MAX_PANEL_HEIGHT, available));
+    const top =
+      placement === "below" ? r.bottom + 6 : r.top - 6 - maxHeight;
     setCoords({
-      top: r.bottom + 6,
+      top,
       left,
       width: panelWidth,
+      maxHeight,
     });
   }, [open, align, minWidth]);
 
@@ -73,7 +96,14 @@ export function Dropdown({
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape" && openId === id) setOpen(null);
     };
-    const onScroll = () => {
+    const onScroll = (e: Event) => {
+      // Don't close the dropdown when the user scrolls inside the
+      // panel itself — only outer page/scroll containers should
+      // dismiss it.
+      const target = e.target as Node | null;
+      if (panelRef.current && target && panelRef.current.contains(target)) {
+        return;
+      }
       if (openId === id) setOpen(null);
     };
     document.addEventListener("mousedown", handler);
@@ -115,11 +145,12 @@ export function Dropdown({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4, scale: 0.97 }}
                 transition={{ duration: 0.12 }}
-                className="fixed z-[1000] rounded-lg bg-ink-900/95 border border-white/[0.08] shadow-[0_24px_48px_-12px_rgba(0,0,0,0.85)] backdrop-blur-xl p-1"
+                className="fixed z-[1000] rounded-lg bg-ink-900/95 border border-white/[0.08] shadow-[0_24px_48px_-12px_rgba(0,0,0,0.85)] backdrop-blur-xl p-1 overflow-y-auto overscroll-contain"
                 style={{
                   top: coords.top,
                   left: coords.left,
                   minWidth: coords.width,
+                  maxHeight: coords.maxHeight,
                 }}
               >
                 {opts.map((o) => (
